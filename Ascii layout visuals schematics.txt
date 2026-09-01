@@ -1,0 +1,242 @@
+================================================================================
+                     ECLIPSE ENGINE: VISUAL SCHEMATICS
+                         MASTER REFERENCE FILE
+================================================================================
+
+MODEL 1: THE CROSS-PLATFORM DATA ROUTING PIPELINE
+*Tracks exactly how raw pixels travel from generation to your UI canvas viewport, 
+utilizing driver-level NVML checking and multi-platform shared memory headers.*
+
+ ┌───────────────────────────┐
+ │  Headless ComfyUI Server  │ ➔ Executes Flux model / Kontext masking nodes
+ └─────────────┬─────────────┘
+               │
+               ▼ [Graph Node Execution Finished]
+ ┌────────────────────────────────────────────────────────────┐
+ │  EclipseSharedMemoryWriter Custom ComfyUI Node Layer       │
+ ├────────────────────────────────────────────────────────────┤
+ │ Generates 16-Byte Fixed Binary Header:                     │
+ │ [ Width (4B) ] [ Height (4B) ] [ Channels (4B) ] [ Pad(4B)]│
+ └─────────────┬──────────────────────────────────────────────┘
+               │
+               ▼ [Platform-Specific Shared Memory Generation Pass]
+               ├─────── ( Is Host System Windows or Linux? ) ───────┐
+               │                                                    │
+               ▼ [WINDOWS]                                          ▼ [LINUX]
+ ┌───────────────────────────┐                        ┌───────────────────────────┐
+ │ Windows Named Shared Mem  │                        │ Virtual RAM Disk File     │
+ │ tagname="EclipseVRAMBuffer"│                        │ path="/dev/shm/ebuffer"   │
+ └─────────────┬─────────────┘                        └─────────────┬─────────────┘
+               │                                                    │
+               └───────────────────────┬────────────────────────────┘
+                                       ▼
+ ┌────────────────────────────────────────────────────────────────────────────┐
+ │ Driver-Level Telemetry Check (Lightweight NVML - Zero CUDA Context Overhead)│
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │  Probes Local free_gb memory pools against host allocation target limit.   │
+ └─────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+            ┌──────────────────────────┴──────────────────────────┐
+            ▼ [Free VRAM Available]                               ▼ [Low VRAM Ceiling]
+ ┌─────────────────────────────────────┐               ┌──────────────────────┐
+ │       CUDA ACCELERATED ROUTE        │               │ SYSTEM RAM FALLBACK  │
+ │ Array mapped to local VRAM textures │               │ Array array unpacked │
+ │ via GPU-cached CuPy utility tables. │               │ completely to CPU.   │
+ └──────────────────┬──────────────────┘               └──────────┬───────────┘
+                    │                                             │
+                    └──────────────────┬──────────────────────────┘
+                                       ▼
+ ┌────────────────────────────────────────────────────────────────────────────┐
+ │ THE MATH MATRIX ENGINE (Stateless Read-Only Operational Sequence Stack)     │
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │ 1. Sanitizer Pass ➔ np.clip(matrix, 0, 255).astype(np.uint8) [Anti-Confetti]│
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │ 2. Grid Router    ➔ 2D FFT Analysis (Autodetects Grid Frequency Patterns)  │
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │ 3. Quantization   ➔ Oklab Perceptual Space Clustering (Clamps Color Depth) │
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │ 4. Palette Remap  ➔ Discrete Lookup Tables (LUT Mode Indexing Operations)  │
+ ├────────────────────────────────────────────────────────────────────────────┤
+ │ 5. Dither Engine  ➔ Ordered Bayer Matrix / Error-Diffusion Pass [LOCKED LAST]│
+ └─────────────────────────────────────┬──────────────────────────────────────┘
+                                       ▼
+ ┌────────────────────────────────────────────────────────────────────────────┐
+ │                        TAURI WEBVIEW INTERFACE APPSHELL                    │
+ └────────────────────────────────────────────────────────────────────────────┘
+
+
+MODEL 2: PROGRESSIVE VISUAL VIEW TIERS (FRONT-END CANVAS VIEWS)
+
+--- TIER 1: COMPACT SIMPLIFIED (THE PLAYGROUND CANVAS) ---
+A completely sterile view for fine artists. Everything is controlled via an 
+interactive radial pop-up ring under the stylus pointer.
+
+ ┌──────────────────────────────────────────────────────────────────┐
+ │                                                                  │
+ │       🎨 [Artist Drawing Canvas / Scribble Box Viewport]         │
+ │                                                                  │
+ │                     ┌─────── [Preset] ───────┐                   │
+ │                     │          COLOR         │                   │
+ │                     │  GameBoy 16-Bit   NES  │                   │
+ │                     │    [■]     [■]    [■]  │                   │
+ │              [Grid] 🖲️                      ⚙️ [Engine]           │
+ │                     │  Resolution:  64x64    │                   │
+ │                     │  Dither:     [  ●   ]  │                   │
+ │                     └──────── [Render] ──────┘                   │
+ │                                                                  │
+ └──────────────────────────────────────────────────────────────────┘
+
+--- TIERS 2 & 3: THE INTERMEDIATE STUDIO & MASTER ENGINE ROOM ---
+Unlocks the permanent sidebar drawers, separating parameter inputs from active 
+palette status matrices.
+
+ ┌─────────────────┬──────────────────────────────┬─────────────────┐
+ │ 📐 CONTROL DIAL │                              │ 🎨 PALETTE LAB  │
+ ├─────────────────┤                              ├─────────────────┤
+ │ 📁 Source Image │     [Side-by-Side Canvas]    │ ── SOURCE BANK ─│
+ │                 │                              │ [■][■][■][■][■] │
+ │ ⚙️ Grid Engine  │     ┌──────────┬──────────┐  │ [■][■][■][■][■] │
+ │ [Auto-FFT    ▼] │     │   RAW    │  PIXEL   │  │                 │
+ │                 │     │  FLUX    │  SPRITE  │  │ ── LOSPEC REG ──│
+ │ 🎲 Palette Roll │     │  OUTPUT  │  OUTPUT  │  │ [■][■][■][■][■] │
+ │ Var: [  ●     ] │     │          │          │  │ [■][■][■][■][■] │
+ │                 │     └──────────┴──────────┘  │                 │
+ │ ⚡ Execute      │                              │ 🔒 Pinned Swatch│
+ └─────────────────┴──────────────────────────────┴─────────────────┘
+
+
+MODEL 3: THE DECOUPLED PALETTE DRAWERS & STATUS MATRIX LAB HOOKS
+
+ ─── OPTION A: BORDER OUTLINE INDICATOR (MINIMALIST SPLIT) ───
+ Swatches float freely. Bounding box maps natively only during selection/hover flags.
+  
+ ┌────────────────────────┐ 
+ │ [■] [■] [■] [■]    [■] │   [■] [■] [■] [■]    [■] 
+ │ [■] [■] [■] [■]    [■] │   [■] [■] [■] [■]    [■] 
+ └────────────────────────┘ 
+  ↳ Status: Active Matrix      ↳ Status: Locked Ref Row
+  
+ ─── OPTION B: LINE DIVISION VIEW (STRUCTURED DIVIDERS) ───
+ Uses crisp horizontal/vertical hairlines to separate distinct color data spaces.
+  
+ ─── SOURCE PALETTE (EXTRACTED) ─────────────────────────
+ [■] [■] [■] [■] [■] [■] [■] [■] [■] [■] [■] [■] [■] [■]
+ 
+ ─── REFERENCE BANK (LOSPEC: DB32) ──────────────────────
+ [■] [■] [■] [■] [■] [■] [■] [■] [■] [■] [■] [■] [■] [■]
+  
+ ─── OPTION C: FULL BOX CONTAINER (CATALOG CONTAINER) ───
+ Every palette block is an independent, collapsible, drag-and-drop workspace widget drawer.
+  
+ ┌─ ▼ CUSTOM BANK: KNIGHT METALLICS ──────────────────┐
+ │ [■] [■] [■] [■]  [■] [■] [■] [■]  [■] [■] [■] [■]  │
+ │ └─ Active Remap  └─ Ghost Instance└─ Locked Skintone│
+ └────────────────────────────────────────────────────┘
+ ┌─ ▶ CATALOG: SAVED GAMEBOY SCHEMES ─────────────────┐
+ └────────────────────────────────────────────────────┘
+
+
+MODEL 4: THE MULTI-PREVIEW COMPARISON AUDIT MATRIX
+Renders parallel array permutations side-by-side on independent asynchronous
+  ┌────────────────────────────────────────────────────────────────────────┐
+  │                      THE MULTI-PREVIEW AUDIT MATRIX                    │
+  ├────────────────────────────────────┬───────────────────────────────────┤
+  │ 🗲 CONFIGURATION A (Default Stack)  │ 🗲 CONFIGURATION B (Dither First)  │
+  │  [Grid Snap] ➔ [Quant] ➔ [Dither]  │  [Dither] ➔ [Grid Snap] ➔ [Quant]  │
+  │ ┌────────────────────────────────┐ │ ┌────────────────────────────────┐ │
+  │ │                                │ │ │                                │ │
+  │ │    (Crisp Retro Output)        │ │ │     (Gritty Stylized Chaos)    │ │
+  │ │                                │ │ │                                │ │
+  │ └────────────────────────────────┘ │ └────────────────────────────────┘ │
+  ├────────────────────────────────────┼───────────────────────────────────┤
+  │ 🗲 CONFIGURATION C (Luminance Only) │ 🗲 CONFIGURATION D (Custom User)   │
+  └────────────────────────────────────┴───────────────────────────────────┘
+
+
+MODEL 5: ITERATIVE NON-DESTRUCTIVE INPAINTING & CONTEXT MASK CANVAS
+Maps out how the open-source Fabric.js sketch overlay isolates pen input, 
+generates dynamic alpha stencil context boxes to prevent edge seams, and links 
+to the network execution node router profile.
+
+ ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+ │ 🌐 NODE ROUTE: [● Local Node]  [○ LAN Remote: 192.168.1.50]  [○ Cloud Cluster (Async)]  │
+ ├─────────────────────────────────────────────────────────────────────────────────────────┤
+ │                                                                                         │
+ │  🎨 DUAL-LAYER WORKSPACE VIEWPORT (Fabric.js Core API Engine)                           │
+ │                                                                                         │
+ │  ┌───────────────────────────────────────────────────────────────────────────────────┐  │
+ │  │                                                                                   │  │
+ │  │   [ LAYER A: THE VISUAL ART CANVAS ]                                              │  │
+ │  │   Displays base background rendering, imported photos, or active sprite blocks.  │  │
+ │  │                                                                                   │  │
+ │  │              ┌─────────────────────────────────────────────────────┐              │  │
+ │  │              │ ✍️ STYLUS BRUSH TRACK (PointerEvents Only)            │              │  │
+ │  │              │ User free-hand scribbles rough sword shape here     │              │  │
+ │  │              │                                                     │              │  │
+ │  │              │      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░       │              │  │
+ │  │              │      ░░░░░ [ ACTIVE BRUSH STROKE ] ░░░░░░░░░       │              │  │
+ │  │              │      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░       │              │  │
+ │  │              │                                                     │              │  │
+ │  │              └─────────────────────────────────────────────────────┘              │  │
+ │  │                         ▲                                                         │  │
+ │  │                         │                                                         │  │
+ │  │   ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┴ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐   │  │
+ │  │     [ LAYER B: ALPHA STENCIL CONTEXT MASKING BOUNDS ]                         │  │
+ │  │   │ Automatically wraps brush path in a bounding envelope box; grabs padding │   │  │
+ │  │     surrounding canvas pixels to condition Flux Kontext & eliminate seams.    │  │
+ │  │   └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘   │  │
+ │  │                                                                                   │  │
+ │  │                                                                                   │  │
+ │  └───────────────────────────────────────────────────────────────────────────────────┘  │
+ │                                                                                         │
+ ├─────────────────────────────────────────────────────────────────────────────────────────┤
+ │ 🗛 STYLUS ZONE: Pressure Active [ON]   │ 📱 TOUCH PANEL LAYER: Gesture Control UI Only  │
+ ├─────────────────────────────────────────────────────────────────────────────────────────┤
+ │ 📁 INPUT OVERRIDES:  [🗪 Prompt Context]  [🧹 Destructive Eraser]  [⚡ Execute Segment]  │
+ └─────────────────────────────────────────────────────────────────────────────────────────┘
+
+ECLIPSE ENGINE: SCRIBBLE & COMPOSITION CANVAS SCHEMATICFILE: CANVAS_SCRIBBLE_ASCII_MODEL.txt | 
+MODE: TIER 1/2 COMPOSITION VIEWPORTMODEL 5: ITERATIVE NON-DESTRUCTIVE INPAINTING & CONTEXT MASK CANVAS
+Maps out how the open-source Fabric.js sketch overlay isolates pen input, generates dynamic alpha stencil 
+context boxes to prevent edge seams, and links to the multi-machine network router.text 
+ ┌─────────────────────────────────────────────────────────────────────────────────────────┐
+ │ 🌐 NODE ROUTE: [● Local VRAM]  [○ LAN Desktop: 192.168.1.50]  [○ Cloud Cluster (Async)] │
+ ├─────────────────────────────────────────────────────────────────────────────────────────┤
+ │                                                                                         │
+ │  🎨 DUAL-LAYER WORKSPACE VIEWPORT (Fabric.js Core API Engine)                           │
+ │                                                                                         │
+ │  ┌───────────────────────────────────────────────────────────────────────────────────┐  │
+ │  │                                                                                   │  │
+ │  │   [ LAYER A: THE VISUAL ART CANVAS ]                                              │  │
+ │  │   Displays base background rendering, imported photos, or active sprite blocks.  │  │
+ │  │                                                                                   │  │
+ │  │              ┌─────────────────────────────────────────────────────┐              │  │
+ │  │              │ ✍️ STYLUS BRUSH TRACK (PointerEvents Only)            │              │  │
+ │  │              │ User free-hand scribbles rough sword shape here     │              │  │
+ │  │              │                                                     │              │  │
+ │  │              │      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░       │              │  │
+ │  │              │      ░░░░░ [ ACTIVE BRUSH STROKE ] ░░░░░░░░░       │              │  │
+ │  │              │      ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░       │              │  │
+ │  │              │                                                     │              │  │
+ │  │              └─────────────────────────────────────────────────────┘              │  │
+ │  │                         ▲                                                         │  │
+ │  │                         │                                                         │  │
+ │  │   ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┴ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐   │  │
+ │  │     [ LAYER B: ALPHA STENCIL CONTEXT MASK ]                                   │  │
+ │  │   │ Automatically wraps brush path in a bounding envelope box; grabs padding │   │  │
+ │  │     surrounding canvas pixels to condition Flux Kontext & eliminate seams.    │  │
+ │  │   └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘   │  │
+ │  │                                                                                   │  │
+ │  │                                                                                   │  │
+ │  └───────────────────────────────────────────────────────────────────────────────────┘  │
+ │                                                                                         │
+ ├─────────────────────────────────────────────────────────────────────────────────────────┤
+ │ 🎛️ STYLUS ZONE: Pressure Active [ON]   │ 📱 TOUCH PANEL LAYER: Gesture Control UI Only  │
+ ├─────────────────────────────────────────────────────────────────────────────────────────┤
+ │ 📁 INPUT OVERRIDES:  [🗪 Prompt Context]  [🧹 Destructive Eraser]  [⚡ Execute Segment]  │
+ └─────────────────────────────────────────────────────────────────────────────────────────┘
+Interactive Behavior Rules for code generation:The Touch/Mouse Firewall: The layout strictly forces PointerEvents 
+inside the Dual-Layer Workspace Viewport bounds to trap fine Wacom or Apple Pencil brush stroke data. 
+Any standard hand-touch input defaults immediately to pan/zoom navigation commands, ensuring zero canvas distortion.
+Dynamic Mask Extraction: Clicking 
+[⚡ Execute Segment] triggers Fabric.js to compute the bounding box dimensions of Layer B, strips out Layer A's color data inside that mask box as an image-to-image patch array, and dispatches it over the selected Network Node Route to your background Python scripts.The Lock & Commit Step: When the user approves one of the resulting weapon/asset permutations, it automatically processes through your uint8 matrix clamp and downsampling engine, flattens directly into the base Layer A canvas grid map, and clears Layer B's stencil memory to keep the runtime clean.

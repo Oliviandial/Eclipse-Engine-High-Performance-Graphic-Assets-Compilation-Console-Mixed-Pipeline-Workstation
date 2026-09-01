@@ -1,0 +1,248 @@
+MODULE 1: HARDWARE COURIER & SANDBOX (PIECE A)FILE: /src-tauri/src/sidecar_core/hardware/courier.py | STATUS: FINAL PRODUCTION CODE
+
+"""
+Module: Hardware Courier / Config-Driven Cross-Platform Named Shared Memory Ingestion
+System Bounds: Python 3.11+ Headless Backend Service Runtime. Zero UI Dependencies.
+Dependencies: pynvml, aiohttp, websockets, mmap, numpy>=1.24.0, cupy-cuda12x (Optional GPU Cache).
+"""
+import json
+import asyncio
+import aiohttp
+import websockets
+import mmap
+import os
+import sys
+import struct
+import atexit
+import numpy as np
+
+try:
+    import cupy as cp
+    CUPY_AVAILABLE = True
+except ImportError:
+    CUPY_AVAILABLE = False
+
+try:
+    import pynvml
+    pynvml.nvmlInit()  # Initialize driver handle exactly once at runtime boot
+    NVML_AVAILABLE = True
+    # Global module exit hook guarantees driver handles release exactly once on interpreter shutdown
+    atexit.register(pynvml.nvmlShutdown)
+except Exception:
+    NVML_AVAILABLE = False
+
+class HardwareCourier:
+    def __init__(self, config_path="config.json", instance_id=""):
+        with open(config_path, 'r') as f:
+            self.config = json.load(f)
+        self.comfy_api_url = self.config.get("comfy_http_endpoint", "http://127.0.0.1:8188")
+        self.comfy_ws_url = self.config.get("comfy_ws_endpoint", "ws://127.0.0.1:8188")
+        self.vram_threshold_gb = self.config.get("vram_fallback_threshold_gb", 12.0)
+        self.timeout_limit_sec = self.config.get("comfy_job_timeout_seconds", 120.0)
+        self.active_routing_state = "UNDETERMINED"
+        
+        # Dynamic Instance Tagging: Prevents multi-instance handle collisions on Windows
+        base_tag = self.config.get("windows_shared_memory_tag", "EclipseVRAMBuffer")
+        self.win_tagname = f"{base_tag}_{instance_id}" if instance_id else base_tag
+        self.linux_path = self.config.get("shared_memory_buffer_path", "/dev/shm/eclipse_buffer")
+
+    def probe_hardware_telemetry(self) -> str:
+        """
+        DRIVER-LEVEL MONITORING: Reads physical VRAM directly from system driver layer.
+        Zero heavy CUDA process context creation overhead.
+        """
+        if not NVML_AVAILABLE or not CUPY_AVAILABLE:
+            self.active_routing_state = "SYSTEM_RAM_FALLBACK"
+            return self.active_routing_state
+
+        try:
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+            free_gb = info.free / (1024 ** 3)
+
+            if free_gb < (self.vram_threshold_gb - 6.0): 
+                self.active_routing_state = "SYSTEM_RAM_FALLBACK"
+            else:
+                self.active_routing_state = "CUDA_ACCELERATED"
+        except Exception:
+            self.active_routing_state = "SYSTEM_RAM_FALLBACK"
+            
+        return self.active_routing_state
+
+    def ingest_shared_vram_buffer(self) -> np.ndarray:
+        """
+        CROSS-PLATFORM INGESTION: Auto-detects OS environment layers.
+        Extracts structural header, reads uncompressed raw byte arrays, and dynamically 
+        casts between CuPy GPU allocations and NumPy CPU fallbacks based on real-time VRAM telemetry.
+        """
+        routing = self.probe_hardware_telemetry()
+        is_windows = sys.platform.startswith("win")
+
+        if is_windows:
+            try:
+                # Open Windows Named Shared Memory block map natively via absolute system tag name [5.3]
+                shm_map = mmap.mmap(-1, 0, tagname=self.win_tagname, access=mmap.ACCESS_READ)
+                header_bytes = shm_map.read(16)
+                width, height, channels, _ = struct.unpack("<IIII", header_bytes)
+                pixel_bytes = shm_map.read()
+                shm_map.close()
+            except Exception as e:
+                raise RuntimeError(f"Windows Named Shared Memory layer reading failed for {self.win_tagname}: {str(e)}")
+        else:
+            if not os.path.exists(self.linux_path):
+                raise FileNotFoundError(f"Linux Shared memory virtual buffer missing at: {self.linux_path}")
+            with open(self.linux_path, "r+b") as f:
+                shm_map = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+                header_bytes = shm_map.read(16)
+                width, height, channels, _ = struct.unpack("<IIII", header_bytes)
+                pixel_bytes = shm_map.read()
+                shm_map.close()
+
+        # Dynamic Hardware Array Casting Loop [Milestone 1 Deliverable Complete]
+        if routing == "CUDA_ACCELERATED":
+            gpu_flat = cp.frombuffer(pixel_bytes, dtype=cp.uint8)
+            gpu_matrix = gpu_flat.reshape((height, width, channels))
+            return gpu_matrix
+        else:
+            cpu_flat = np.frombuffer(pixel_bytes, dtype=np.uint8)
+            cpu_matrix = cpu_flat.reshape((height, width, channels))
+            return cpu_matrix
+
+    async def dispatch_comfy_workflow(self, prompt_workflow_json: dict):
+        """
+        SECURED REST/WS BRIDGE: Features explicit JSON key-path monitoring to block hangs
+        and catch localized custom node processing failures instantly over LAN/Cloud nodes.
+        """
+        http_timeout = aiohttp.ClientTimeout(total=self.timeout_limit_sec)
+        
+        async with aiohttp.ClientSession(timeout=http_timeout) as session:
+            async with session.post(f"{self.comfy_api_url}/prompt", json={"prompt": prompt_workflow_json}) as response:
+                if response.status != 200:
+                    raise ConnectionError(f"ComfyUI API rejected execution payload: {response.status}")
+                reply = await response.json()
+                prompt_id = reply["prompt_id"]
+
+        try:
+            async with asyncio.timeout(self.timeout_limit_sec):
+                async with websockets.connect(f"{self.comfy_ws_url}/ws?clientId=eclipse_client") as ws:
+                    while True:
+                        msg = await ws.recv()
+                        data = json.loads(msg)
+                        msg_type = data.get("type")
+                        
+                        # Strict Structure Inquiries (Replaces loose substring match checking)
+                        if msg_type == "execution_error":
+                            node_id = data.get("data", {}).get("node_id")
+                            err_msg = data.get("data", {}).get("exception_message", "Unknown Node Error")
+                            raise RuntimeError(f"ComfyUI Custom Node [{node_id}] Exception: {err_msg}")
+                            
+                        if msg_type == "status" and data.get("data", {}).get("status", {}).get("executing") == "error":
+                            raise RuntimeError(f"Headless server flagged an internal graph optimization failure.")
+                            
+                        # Success Verification Pass
+                        if msg_type == "executing" and data.get("data", {}).get("node") is None and data.get("data", {}).get("prompt_id") == prompt_id:
+                            break 
+        except asyncio.TimeoutError:
+            raise TimeoutError(f"The pipeline operation was aborted: Execution exceeded time window of {self.timeout_limit_sec}s.")
+
+MODULE 1: HARDWARE COURIER & SANDBOX (PIECE B)FILE: /custom_nodes/comfyui_eclipse_bridge.py | STATUS: FINAL PRODUCTION CODE
+"""
+Module: Custom ComfyUI Node Endpoint Generator
+System Bounds: Executed natively by the background Headless ComfyUI server instance.
+Updates: Dynamic Instance Tagging and Module-Level Sticky Retention to secure Windows Named Memory handles.
+"""
+import torch
+import numpy as np
+import mmap
+import struct
+import os
+import sys
+import json
+
+# WINDOWS SYSTEM REFERENCE ANCHOR CONTAINER: Binds Windows anonymous memory maps directly 
+# to the live python module namespace array. Prevents handle teardowns upon function scope exit [5.3].
+GLOBAL_ECLIPSE_BUFFER_RETAINER = {
+    "shm_handle": None
+}
+
+class EclipseSharedMemoryWriter:
+    def __init__(self):
+        # Resolve path boundaries up to parent directory structure to ingest main config variables
+        self.config_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config.json"))
+        self.config = {}
+        if os.path.exists(self.config_path):
+            with open(self.config_path, 'r') as f:
+                self.config = json.load(f)
+                
+        base_tag = self.config.get("windows_shared_memory_tag", "EclipseVRAMBuffer")
+        # Instance ID must match the dynamic token provided to courier.py to guarantee handshake alignment
+        instance_id = self.config.get("active_instance_id", "")
+        self.win_tagname = f"{base_tag}_{instance_id}" if instance_id else base_tag
+        self.linux_dir = "/dev/shm"
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "images": ("IMAGE",), # Accepts standard 4D ComfyUI image tensors [B, H, W, C]
+                "buffer_filename": ("STRING", {"default": "eclipse_buffer"}),
+            }
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "write_tensor_to_shared_memory"
+    OUTPUT_NODE = True
+    CATEGORY = "EclipseEngine/Interception"
+
+    def write_tensor_to_shared_memory(self, images, buffer_filename):
+        # DETACH BATCH ALLOCATION: Isolate target leading frame tensor array out of sequence row [0]
+        image_tensor = images[0]
+        
+        # Convert floating-point normalized tensors [0.0 - 1.0] back to raw raster byte matrices [0 - 255]
+        image_np = (image_tensor.cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+        
+        height, width, channels = image_np.shape
+        pixel_bytes = image_np.tobytes()
+        payload_size = len(pixel_bytes) + 16 # Accounts for 16-byte fixed binary data header block
+        
+        # Construct structural 16-byte header packer [Width (4B), Height (4B), Channels (4B), Padding (4B)]
+        header_bytes = struct.pack("<IIII", width, height, channels, 0)
+        full_payload = header_bytes + pixel_bytes
+        
+        is_windows = sys.platform.startswith("win")
+        
+        if is_windows:
+            # WINDOWS NAMED SHARED MEMORY WRITE WRAPPER: Commit data to system-managed page-cache pool
+            try:
+                # Safely flush and close any existing legacy handles to prevent resource leaks
+                if GLOBAL_ECLIPSE_BUFFER_RETAINER["shm_handle"] is not None:
+                    try:
+                        GLOBAL_ECLIPSE_BUFFER_RETAINER["shm_handle"].close()
+                    except Exception:
+                        pass
+                
+                # Allocate named memory segment. Bounding handle is stored globally to survive function exit scope
+                shm_map = mmap.mmap(-1, payload_size, tagname=self.win_tagname, access=mmap.ACCESS_WRITE)
+                shm_map.write(full_payload)
+                shm_map.flush()
+                
+                # Lock reference to global dict to anchor handles securely inside Windows system space
+                GLOBAL_ECLIPSE_BUFFER_RETAINER["shm_handle"] = shm_map
+            except Exception as e:
+                raise RuntimeError(f"ComfyUI failed to allocate Windows Named Shared Memory block for {self.win_tagname}: {str(e)}")
+        else:
+            # LINUX POSIX FILE MEMORY MAP WRITER: Dump bytes directly to native fast tmpfs mount directory
+            target_path = os.path.join(self.linux_dir, buffer_filename)
+            with open(target_path, "wb") as f:
+                f.write(full_payload)
+                
+        return ()
+
+# Node registration bindings required by ComfyUI server runtime environment loaders
+NODE_CLASS_MAPPINGS = {
+    "EclipseSharedMemoryWriter": EclipseSharedMemoryWriter
+}
+
+NODE_DISPLAY_NAME_MAPPINGS = {
+    "EclipseSharedMemoryWriter": "⚡ Eclipse Engine Shared VRAM Memory Writer"
+}

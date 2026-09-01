@@ -1,0 +1,112 @@
+"""
+Module: Swatch Palette Lab / Relational Status Transaction Ledger
+System Bounds: Decouples UI rendering state variables from backend NumPy array maps.
+Handles Prototypal Child Ghost Clones and transactional delta ledger tracking.
+"""
+import uuid
+import copy
+
+class PaletteLabStatusMatrix:
+    def __init__(self):
+        # Master workspace relational schema definition
+        self.active_project_workspace_schema = {
+            "containers": {},
+            "historical_delta_timeline": []
+        }
+
+    def register_new_container(self, label: str, ui_layout="BORDER_OUTLINE_INDICATOR") -> str:
+        """
+        Registers an independent, collapsible palette container bucket inside the schema state.
+        """
+        container_id = str(uuid.uuid4())
+        self.active_project_workspace_schema["containers"][container_id] = {
+            "container_label": label,
+            "ui_display_layout_mode": ui_layout,
+            "is_collapsed_in_view": False,
+            "mutation_parameters": {
+                "global_degree_offset_limit": 15.0,
+                "base_generation_seed": 42,
+                "current_seed_offset_step": 0
+            },
+            "color_slots": []
+        }
+        return container_id
+
+    def inject_ghost_clone_instance(self, target_container_id: str, parent_slot_pointer: str, parent_hex: str) -> str:
+        """
+        FIGMA-INSPIRED PROTOTYPAL INHERITANCE: Spawns an asset reference pointer in a workspace drawer.
+        Does not replicate flat hex bytes; maps to parent changes unless manual override is flipped.
+        """
+        if target_container_id not in self.active_project_workspace_schema["containers"]:
+            raise KeyError(f"Target container bucket [{target_container_id}] missing from workspace state.")
+            
+        container = self.active_project_workspace_schema["containers"][target_container_id]
+        slot_id = str(uuid.uuid4())
+        
+        clone_slot = {
+            "slot_id": slot_id,
+            "slot_index": len(container["color_slots"]),
+            "parent_pointer_id": parent_slot_pointer,
+            "is_ghost_clone_instance": True,
+            "hex_value": parent_hex,
+            "status_flags": {
+                "is_locked": False,
+                "is_hidden": False,
+                "is_anchor_color": False,
+                "has_manual_override": False
+            }
+        }
+        container["color_slots"].append(clone_slot)
+        return slot_id
+
+    def mutate_parent_palette_row(self, container_id: str, updated_parent_colors: dict):
+        """
+        Propagates changes down from parent rows to children.
+        Respects individual child cells marked with active manual locks or overrides.
+        """
+        container = self.active_project_workspace_schema["containers"].get(container_id)
+        if not container:
+            return
+
+        previous_state = copy.deepcopy(container["color_slots"])
+        affected_slots = []
+
+        for slot in container["color_slots"]:
+            # If the cell is a ghost instance linked to a mutating parent row
+            if slot["is_ghost_clone_instance"]:
+                parent_id = slot["parent_pointer_id"]
+                if parent_id in updated_parent_colors:
+                    # BLOCK CHANGE IF LOCKED OR OVERRIDDEN
+                    if slot["status_flags"]["is_locked"] or slot["status_flags"]["has_manual_override"]:
+                        continue
+                        
+                    slot["hex_value"] = updated_parent_colors[parent_id]
+                    affected_slots.append(slot["slot_id"])
+
+        # Commit transactional ledger logs for non-destructive time rollbacks
+        if affected_slots:
+            self.push_transactional_delta_log(
+                action_type="PARENT_PROPAGATED_MUTATION",
+                affected_slots=affected_slots,
+                previous_values={"color_slots": previous_state}
+            )
+
+    def push_transactional_delta_log(self, action_type: str, affected_slots: list, previous_values: dict):
+        """
+        GIT-STYLE DELTA LEDGER: Appends light data logs to a continuous history ledger track.
+        Allows instant visual history scrubbing, multi-workspace sync, and complete rollbacks.
+        """
+        log_entry = {
+            "log_id": str(uuid.uuid4()),
+            "action_type": action_type,
+            "affected_slots": affected_slots,
+            "previous_state_snapshot": previous_values
+        }
+        self.active_project_workspace_schema["historical_delta_timeline"].append(log_entry)
+
+    def wipe_workspace_cache_clean(self):
+        """Clears memory timelines back to the baseline initialization contract."""
+        self.active_project_workspace_schema = {
+            "containers": {},
+            "historical_delta_timeline": []
+        }
