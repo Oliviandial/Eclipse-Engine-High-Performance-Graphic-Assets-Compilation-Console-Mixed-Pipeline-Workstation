@@ -1,0 +1,33 @@
+FILE: /src-tauri/Cargo.toml | STATUS: MASTER STABLE BUILD SPECIFICATION
+
+[package]
+name = "eclipse-engine"
+version = "0.1.0"
+description = "A Cross-Platform Shared-Memory Coordination Console for AI-to-Retro Processing"
+authors = ["Solo Systems Architect"]
+edition = "2021"
+rust-version = "1.70"
+
+[dependencies]
+tauri = { version = "1.5", features = ["api-all", "sidecar"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.32", features = ["full"] }
+log = "0.4"
+env_logger = "0.10"
+
+# UV INTEGRATION CORE HOOKS
+# Binds native Rust process utilities to leverage Astral's 'uv' binary infrastructure 
+# for sub-second, isolated local Python sandbox provisioning on application first-boot.
+thiserror = "1.0"
+anyhow = "1.0"
+which = "4.4" # Dynamically locates existing 'uv' or python binaries on host OS paths
+
+[build-dependencies]
+tauri-build = { version = "1.5" }
+
+[profile.release]
+panic = "abort" # Enforces immediate clean shutdown anomalies to prevent memory leaks
+codegen-units = 1
+lto = true
+opt-level = "z" # Compiles down to an ultra-lightweight, optimized binary container size
