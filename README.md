@@ -1,3 +1,6 @@
+**WARNING ** This is a conceptial blueprint and architectual prototypoe that will be evolving and growing over time. All suggestions/feedback are welcome not sure if all of them will be addressed in a timely manner but at least we can add them to the backlog and an audit path for review. Thank you 
+
+
 # Eclipse Engine: The Next-Generation Zero-Copy Matrix Pipeline for Real-Time VFX, Virtual Production & Asset Creation
 
 ## 🌐 The Manifest: Why Eclipse Exists
