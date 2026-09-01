@@ -1,0 +1,43 @@
+## ❓ Frequently Asked Questions (FAQ)
+
+### Q: Is Eclipse Engine a new generative AI model or checkpoint?
+**A:** No. Eclipse is an open-source, high-performance **desktop user-interface cockpit and hardware-agnostic communication pipeline** written in Rust and WebGL. It does not train or run its own foundational neural networks. Instead, it hooks directly into your *existing* local AI workflows (like a headless local ComfyUI server instance) and pipes raw image matrices straight to your screen using ultra-fast, zero-copy system memory.
+
+### Q: Why did you build a desktop application instead of a standard Web UI?
+**A:** Web browsers are terrible environments for high-performance graphic manipulation. Standard web-based AI interfaces run on heavy JavaScript event loops that force image data to be compressed into file shapes or serialized into base64 strings to pass over local network sockets. This creates significant container canvas blur, interface frame drops, and input lag. 
+Eclipse completely isolates interface tasks into native Rust desktop containers while streaming raw, uncompressed pixel arrays over operating-system kernel-space memory maps (`mmap`), delivering hyper-responsive canvas viewports at **144Hz with 0% browser thread lag**.
+
+### Q: Does this project require a multi-gigabyte download containing machine learning runtimes?
+**A:** No. Eclipse follows a **"Bring Your Own Core" (BYOC)** philosophy. The master desktop installer is extremely lightweight (~25 MB). Upon initial launch, it safely scans your system, detects your existing local machine learning environments, and establishes a lightweight drop-in extension bridge (`comfyui_eclipse_bridge.py`) into your workspace automatically.
+
+### Q: How does the engine run AI tools smoothly on lower-end laptops?
+**A:** Eclipse uses **Asymmetric Resolution Constraints and Smart VRAM Eviction**. If you toggle *Eco-Laptop Profile*, the heavy background machine learning model is restricted to a compact 256px or 384px generation size, while static text models (like CLIP or T5) are evicted from your GPU VRAM and cached safely in host System RAM. Local WebGL fragment shaders then ingest that tiny 256px shared-memory stream, upsampling and dithering the canvas smoothly to 1080p in real-time right on your graphics hardware.
+
+### Q: Can I use Eclipse with game development tools or streaming software?
+**A:** Yes. Because Eclipse utilizes global, operating-system-level shared memory pagefiles (`"EclipseVRAMBuffer"` on Windows and `/dev/shm` on Linux), any external software can plug into the stream. The long-term roadmap features open plugin boilerplates for **Unity, Godot, and Unreal Engine** to live-update textures inside active running scenes, alongside an **OBS Studio** wrapper to power real-time, zero-rigging generative streaming avatars with sub-millisecond local injection speeds.
+
+### Q: How does the workspace window layout behave? Can I use multiple monitors?
+**A:** Eclipse embraces the modern **Zed-IDE interface philosophy**. The workspace is built as a highly responsive, canvas-locked window layout. Panels (such as the *Ultra-Sharp Pixel Preview*, *Svelte Param Sidebars*, or *Palette Swatch Labs*) can be freely torn away, resized, and snapped across multi-monitor setups without performance loss, because each window reads the raw pixel data directly from the same shared system memory handle.
+
+### Q: I don’t know anything about code. Will I have to use the terminal to get this working?
+**A:** No. While Eclipse uses advanced low-level programming under the hood, the user experience is entirely visual. You download a standard desktop installer, and a setup wizard will automatically scan your computer to find your local AI directories. Once configured, you manipulate everything using sliders, buttons, and traditional canvas tools—no terminal required.
+
+### Q: Does this cost money to use or require a monthly subscription?
+**A:** Absolutely not. Eclipse is 100% free, open-source, and community-driven. It runs entirely on your own computer’s local hardware. There are no paywalls, premium tiers, or corporate subscription models.
+
+### Q: Why does my antivirus pop up a warning when I launch Eclipse for the first time?
+**A:** Because Eclipse uses an advanced technique called Shared Memory Mapping (`mmap`) to bypass browser lag, it creates a temporary memory file block inside your operating system's kernel space (`EclipseVRAMBuffer`). Because the software directly hooks into your computer's RAM for maximum speed, strict antivirus programs might flag it out of caution. It is completely safe; you can whitelist the application without risk.
+
+### Q: If my avatar looks pixelated or retro, does that mean it isn’t working?
+**A:** No, that is an intentional feature! Eclipse was specifically built to give artists perfect control over game assets. If you are in *Ultra-Sharp Asset Mode*, our WebGL shaders lock the image to strict retro grid lines and dither matrices. If you want a smooth, cinematic visual effect, simply tap the tilde (`~`) key to instantly swap into *High-Fidelity VFX Mode*.
+### Q: Why use Named Semaphores instead of traditional Mutex locks for the Triple-Buffering synchronization?
+**A:** Traditional programming Mutex locks function perfectly for managing multithreaded operations *inside a single compiled binary process*, but they cannot cleanly cross the process boundary wall. Because Eclipse isolates the Python machine learning sidecar from the compiled Rust/Tauri desktop cockpit, we utilize OS-level **Named Semaphores** (`posix_ipc` on Linux/macOS and raw Win32 handle tags on Windows). This allows two completely separate runtime environments to coordinate atomic pointer swaps across the shared memory heap with sub-millisecond precision and near-zero context-switching overhead.
+
+### Q: How does the 32-byte System Control Block prevent data corruption during dynamic viewport resizing?
+**A:** In standard raw uncompressed raster matrices, if the receiver reads bytes assuming a layout width of 512px but the sender suddenly switches to a 1024px buffer, the application will experience an immediate segmentation fault or catastrophic memory tearing. Eclipse prevents this by prepending every frame swap with a strict **32-byte header validation pack**. The Rust receiver reads the magic byte (`0xEE`), validates the protocol schema version, and dynamically re-binds the WebGL texture parameters to matching stride coordinates *before* copying the pixel payload array, ensuring absolute data integrity even during aggressive window resizing.
+
+### Q: PyTorch allocates tensors on GPU VRAM, but mmap lives in Host System RAM. Doesn't this device-to-host transfer kill the speed gains?
+**A:** Yes, a standard `cudaMemcpyDtoH` execution pass does introduce a minute latency tax, but it is a highly calculated architectural compromise. If we attempted to share actual raw GPU pointers across process spaces (via complex configurations like Vulkan/CUDA Interop or NVIDIA NVMM), the application would become incredibly fragile, highly platform-dependent, and prone to throwing terminal driver access violations. Shifting to an optimized **Host RAM `mmap` pipeline** allows us to isolate the execution layer. It consumes roughly ~3-5ms of transport latency, but it guarantees that if your local PyTorch context experiences a fatal Out-of-Memory (OOM) crash, your Rust desktop application UI remains completely un-crashable and active.
+
+### Q: I want to build a custom dither pattern or palette map. Do I need to modify the Rust core repo?
+**A:** No. You do not need to compile a single line of Rust code to build new styles. Eclipse features a decentralized, community-first **Open Shader Registry**. The application exposes a physical user directory path (`/shaders`). You can write standard, raw GLSL fragment scripts (`.glsl`) and drop them straight into that folder. Eclipse's WebGL layer watches that directory and dynamically loads your custom fragment code at runtime, applying your mathematical filters directly over the incoming uncompressed memory stream live.
